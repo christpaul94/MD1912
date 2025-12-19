@@ -1,0 +1,14 @@
+setup.py
+TrappedAtomsSimulation/__init__.py
+TrappedAtomsSimulation/force_calculation.py
+TrappedAtomsSimulation/initialization.py
+TrappedAtomsSimulation/initialization_rejection_sampling.py
+TrappedAtomsSimulation/integrators.py
+TrappedAtomsSimulation/plot_utils.py
+TrappedAtomsSimulation/trap_potential_extended.py
+TrappedAtomsSimulation/triton_matmul_kernels.py
+trapped_atoms_simulation.egg-info/PKG-INFO
+trapped_atoms_simulation.egg-info/SOURCES.txt
+trapped_atoms_simulation.egg-info/dependency_links.txt
+trapped_atoms_simulation.egg-info/requires.txt
+trapped_atoms_simulation.egg-info/top_level.txt
