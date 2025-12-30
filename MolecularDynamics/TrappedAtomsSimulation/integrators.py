@@ -360,7 +360,126 @@ def run_verlet_simulation_general(
             "potential_energy_pair": potential_pair_out
         }
 
+def run_splitting_simulation_optimized(
+    t_values: torch.Tensor,
+    q0: torch.Tensor,
+    p0: torch.Tensor,
+    omega_matrix: torch.Tensor,      # Deine Matrix
+    trap_force_func: Callable,       # Berechnet volle externe Falle
+    trap_force_params: Dict,
+    pair_force_func: Callable,       # Berechnet Paarwechselwirkung
+    pair_force_params: Dict,
+    mass: float = 1.0,               # Hier immer 1.0 wie du sagtest
+    precision_type: torch.dtype = torch.float32,
+    device: torch.device = torch.device('cpu'),
+    substeps: int = 100,
+    **kwargs
+) -> Dict[str, torch.Tensor]:
+    
+    with torch.no_grad():
+        num_save_points, n_particles = t_values.size(0), q0.size(0)
 
+        # Output Arrays
+        q_out = torch.empty((num_save_points, n_particles, 3), dtype=precision_type, device=device)
+        p_out = torch.empty((num_save_points, n_particles, 3), dtype=precision_type, device=device)
+        kinetic_energy_out = torch.empty(num_save_points, dtype=precision_type, device=device)
+        potential_trap_out = torch.empty(num_save_points, dtype=precision_type, device=device)
+        potential_pair_out = torch.empty(num_save_points, dtype=precision_type, device=device)
+
+        # Initialisierung
+        q_current = q0.to(device, precision_type)
+        p_current = p0.to(device, precision_type)
+        
+        # Frequenzen extrahieren (genau wie in deinem Code)
+        omegas = torch.diagonal(omega_matrix).to(device, precision_type) 
+        # Falls omegas (3,) ist, machen wir (1, 3) draus für Broadcasting auf (N, 3)
+        if omegas.ndim == 1:
+            omegas = omegas.unsqueeze(0)
+
+        # --- Hilfsfunktion: Restkraft berechnen ---
+        # F_rest = F_real_trap + F_pair - F_harmonic_ideal
+        def get_residual_forces(q):
+            # 1. Volle externe Falle (z.B. Crossed Beam)
+            f_trap, pot_trap, _ = trap_force_func(q, **trap_force_params)
+            
+            # 2. Paarwechselwirkung
+            f_pair, pot_pair = pair_force_func(q, **pair_force_params)
+            
+            # 3. Abzug der idealen harmonischen Kraft (die wir analytisch lösen)
+            # Formel: F = -m * w^2 * q (mit m=1)
+            f_ref = - (omegas**2) * q
+            
+            # Restkraft für den Verlet-Kick
+            f_residual = (f_trap + f_pair) - f_ref
+            
+            return f_residual, pot_trap, pot_pair
+
+        # Startwerte setzen
+        q_out[0], p_out[0] = q_current, p_current
+        kinetic_energy_out[0] = 0.5 * torch.sum(p_current**2) # m=1
+        
+        f_res_current, pot_t, pot_p = get_residual_forces(q_current)
+        potential_trap_out[0], potential_pair_out[0] = pot_t, pot_p
+
+        # --- Hauptschleife ---
+        for i in range(1, num_save_points):
+            Dt = t_values[i] - t_values[i - 1]
+            dt = Dt / substeps
+
+            # --- VORBERECHNUNG DER ROTATION ---
+            # Das ist effizienter als deine Funktion in der Loop aufzurufen.
+            # Wir berechnen sin/cos nur 1x pro Zeitfenster, nicht 100x.
+            # Deine Formel: q = q0 * c + (p0 / w) * s
+            c_step = torch.cos(omegas * dt)
+            s_step = torch.sin(omegas * dt)
+            
+            # Vorfaktoren für Performance cachen
+            # Term für q: s / w
+            s_over_w = s_step / omegas
+            # Term für p: w * s
+            w_times_s = omegas * s_step
+
+            # --- INNERE SCHLEIFE (Symplectic Splitting) ---
+            for _ in range(substeps):
+                # 1. KICK (dt/2) mit Restkräften
+                p_current = p_current + 0.5 * dt * f_res_current
+                
+                # 2. DRIFT / ROTATION (dt) - Exakte harmonische Lösung
+                # Hier nutzen wir exakt deine Formeln für m=1
+                # q_new = q * cos + p * (sin/w)
+                # p_new = p * cos - q * (w*sin)
+                
+                q_next_rot = q_current * c_step + p_current * s_over_w
+                p_next_rot = p_current * c_step - q_current * w_times_s
+                
+                q_current = q_next_rot
+                p_current = p_next_rot
+                
+                # Neue Kräfte am neuen Ort berechnen
+                f_res_next, pot_t_next, pot_p_next = get_residual_forces(q_current)
+                
+                # 3. KICK (dt/2) mit neuen Restkräften
+                p_current = p_current + 0.5 * dt * f_res_next
+                
+                # Update Kraft
+                f_res_current = f_res_next
+
+            # Speichern
+            q_out[i] = q_current
+            p_out[i] = p_current
+            kinetic_energy_out[i] = 0.5 * torch.sum(p_current**2)
+            potential_trap_out[i] = pot_t_next
+            potential_pair_out[i] = pot_p_next
+
+            if i % 10 == 0:
+                print(f"\rSplitting Progress: {i}/{num_save_points}", end="")
+        
+        return {
+            "times": t_values, "positions": q_out, "momenta": p_out,
+            "kinetic_energy": kinetic_energy_out,
+            "potential_energy_trap": potential_trap_out,
+            "potential_energy_pair": potential_pair_out
+        }
 
 import torch
 import time
