@@ -360,7 +360,7 @@ def run_verlet_simulation_general(
             "potential_energy_pair": potential_pair_out
         }
 
-def run_splitting_simulation_optimized(
+def run_harmonic_splitting_simulation(
     t_values: torch.Tensor,
     q0: torch.Tensor,
     p0: torch.Tensor,
