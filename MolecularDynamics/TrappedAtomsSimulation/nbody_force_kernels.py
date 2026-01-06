@@ -6,7 +6,7 @@ from pykeops.torch import LazyTensor
 # ============================================================================
 # 1. PYTORCH (Naive, Loop, & Optimized)
 # ============================================================================
-@torch.compile(mode="reduce-overhead")
+#@torch.compile(mode="reduce-overhead")
 def loop_DxN(q, r0, c, chunk=None):
     """
     Langsame Python-Schleife über N. 
