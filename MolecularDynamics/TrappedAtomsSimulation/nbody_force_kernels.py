@@ -4,9 +4,51 @@ import triton.language as tl
 from pykeops.torch import LazyTensor
 
 # ============================================================================
-# 1. PYTORCH (Reference & Optimized)
+# 1. PYTORCH (Naive, Loop, & Optimized)
 # ============================================================================
+@torch.compile(mode="reduce-overhead")
+def loop_DxN(q, r0, c, chunk=None):
+    """
+    Langsame Python-Schleife über N. 
+    Dient als absolute Baseline (sehr langsam bei großem N).
+    """
+    D, N = q.shape
+    r0_2 = r0**2
+    factor = c / r0_2
+    forces = torch.zeros_like(q)
+    
+    # Wir berechnen hier keine Potential-Rückgabe für den Benchmark-Vergleich,
+    # um die Signatur (q, r0, c, chunk) einheitlich zu halten.
+    for i in range(N):
+        q_i = q[:, i:i+1]
+        diff = q_i - q
+        r_sq = (diff**2).sum(dim=0)
+        exp_term = torch.exp(-r_sq / (2 * r0_2))
+        forces[:, i] = (diff * (exp_term * factor).unsqueeze(0)).sum(dim=1)
+        
+    return forces
 
+@torch.compile(mode="reduce-overhead")
+def naive_DxN(q, r0, c, chunk=None):
+    """
+    Vollständiges O(N^2) Broadcasting. 
+    Warnung: Führt bei großem N sofort zu Out-Of-Memory (OOM).
+    """
+    D, N = q.shape
+    r0_2 = r0**2
+    factor = c / r0_2
+    
+    # (D, N, 1) - (D, 1, N) -> (D, N, N) -> OOM Gefahr!
+    diff = q.unsqueeze(2) - q.unsqueeze(1)
+    r_sq = (diff**2).sum(dim=0) 
+    
+    exp_term = torch.exp(-r_sq / (2 * r0_2))
+    force_vecs = diff * (exp_term * factor).unsqueeze(0)
+    forces = force_vecs.sum(dim=2)
+    
+    return forces
+    
+@torch.compile(mode="reduce-overhead")
 def pytorch_chunked_DxN(q, sigma, V0, chunk=1024):
     D, N = q.shape
     sigma_sq = sigma**2
@@ -17,39 +59,10 @@ def pytorch_chunked_DxN(q, sigma, V0, chunk=1024):
     for i in range(0, N, chunk):
         end = min(i + chunk, N)
         q_chunk = q[:, i:end]
-        # Broadcasting Memory Heavy
         diff = q_chunk[:, :, None] - q[:, None, :] 
         r_sq = (diff**2).sum(dim=0)
         force_mag = torch.exp(inv_width * r_sq) * prefactor
         forces[:, i:end] = (diff * force_mag[None, :, :]).sum(dim=2)
-    return forces
-
-@torch.compile(mode="reduce-overhead")
-def pytorch_matmul_DxN(q, sigma, V0, chunk=8192):
-    # Tensor Cores Optimized
-    D, N = q.shape
-    sigma_sq = sigma**2
-    prefactor = V0 / sigma_sq
-    inv_width = -1 / (2 * sigma_sq)
-    
-    q_sq = (q**2).sum(dim=0)
-    forces = torch.empty_like(q)
-
-    for i in range(0, N, chunk):
-        end = min(i + chunk, N)
-        q_chunk = q[:, i:end]      
-        q_sq_chunk = q_sq[i:end]   
-        
-        term_dot = torch.matmul(q_chunk.T, q)
-        r_sq = torch.clamp(q_sq_chunk[:, None] + q_sq[None, :] - 2 * term_dot, min=0.0)
-        
-        force_mag = torch.exp(inv_width * r_sq) * prefactor
-        sum_weights = force_mag.sum(dim=1)     
-        
-        term_push = q_chunk * sum_weights[None, :]   
-        term_pull = torch.matmul(q, force_mag.T)
-        forces[:, i:end] = term_push - term_pull
-
     return forces
 
 # ============================================================================
