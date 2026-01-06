@@ -28,7 +28,7 @@ def loop_DxN(q, r0, c, chunk=None):
         
     return forces
 
-@torch.compile(mode="reduce-overhead")
+#@torch.compile(mode="reduce-overhead")
 def naive_DxN(q, r0, c, chunk=None):
     """
     Vollständiges O(N^2) Broadcasting. 
