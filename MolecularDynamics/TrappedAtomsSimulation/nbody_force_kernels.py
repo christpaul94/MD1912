@@ -73,7 +73,10 @@ def naive_DxN(q, r0, c, chunk=None):
     factor = c / r0_2
     
     # (D, N, 1) - (D, 1, N) -> (D, N, N) -> OOM Gefahr!
-    diff = q.unsqueeze(2) - q.unsqueeze(1)
+    # q[:, :, None] entspricht Shape (D, N, 1)
+    # q[:, None, :] entspricht Shape (D, 1, N)
+    # Resultat diff hat Shape (D, N, N)
+    diff = q[:, :, None] - q[:, None, :] 
     r_sq = (diff**2).sum(dim=0) 
     
     exp_term = torch.exp(-r_sq / (2 * r0_2))
