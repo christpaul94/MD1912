@@ -6,6 +6,40 @@ from pykeops.torch import LazyTensor
 # ============================================================================
 # 1. PYTORCH (Naive, Loop, & Optimized)
 # ============================================================================
+def double_loop_DxN(q, r0, c, chunk=None):
+    """
+    Der absolut langsamste Ansatz: Zwei explizite Python-Schleifen.
+    Dient als akademisches Beispiel für O(N^2) ohne Vektorisierung.
+    """
+    D, N = q.shape
+    r0_sq = r0**2
+    prefactor = c / r0_sq
+    forces = torch.zeros_like(q)
+
+    # Äußere Schleife (Ziel-Teilchen)
+    for i in range(N):
+        q_i = q[:, i] # Vektor der Länge D
+        
+        # Innere Schleife (Quell-Teilchen)
+        for j in range(N):
+            if i == j:
+                continue # Keine Selbstwechselwirkung
+            
+            q_j = q[:, j]
+            
+            # --- Ab hier: Skalare Operationen pro Paar ---
+            diff = q_i - q_j
+            r_sq = torch.sum(diff**2)
+            
+            # Gauß-Formel
+            mag = prefactor * torch.exp(-r_sq / (2 * r0_sq))
+            
+            # Kraft aufaddieren
+            forces[:, i] += mag * diff
+            
+    return forces
+
+
 #@torch.compile(mode="reduce-overhead")
 def loop_DxN(q, r0, c, chunk=None):
     """
