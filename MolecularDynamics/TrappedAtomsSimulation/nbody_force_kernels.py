@@ -3,13 +3,11 @@ import triton
 import triton.language as tl
 from pykeops.torch import LazyTensor
 
-# ============================================================================
-# 1. PYTORCH (Naive, Loop, & Optimized)
+
 # ============================================================================
 def double_loop_DxN(q, r0, c, chunk=None):
     """
-    Der absolut langsamste Ansatz: Zwei explizite Python-Schleifen.
-    Dient als akademisches Beispiel für O(N^2) ohne Vektorisierung.
+    
     """
     D, N = q.shape
     r0_sq = r0**2
@@ -22,12 +20,11 @@ def double_loop_DxN(q, r0, c, chunk=None):
         
         # Innere Schleife (Quell-Teilchen)
         for j in range(N):
-            if i == j:
-                continue # Keine Selbstwechselwirkung
+            #if i == j: FÜR KRAFT UNNÖTIG
+            #    continue # Keine Selbstwechselwirkung
             
             q_j = q[:, j]
-            
-            # --- Ab hier: Skalare Operationen pro Paar ---
+
             diff = q_i - q_j
             r_sq = torch.sum(diff**2)
             
@@ -44,15 +41,13 @@ def double_loop_DxN(q, r0, c, chunk=None):
 def loop_DxN(q, r0, c, chunk=None):
     """
     Langsame Python-Schleife über N. 
-    Dient als absolute Baseline (sehr langsam bei großem N).
     """
     D, N = q.shape
     r0_2 = r0**2
     factor = c / r0_2
     forces = torch.zeros_like(q)
     
-    # Wir berechnen hier keine Potential-Rückgabe für den Benchmark-Vergleich,
-    # um die Signatur (q, r0, c, chunk) einheitlich zu halten.
+
     for i in range(N):
         q_i = q[:, i:i+1]
         diff = q_i - q
@@ -66,13 +61,12 @@ def loop_DxN(q, r0, c, chunk=None):
 def naive_DxN(q, r0, c, chunk=None):
     """
     Vollständiges O(N^2) Broadcasting. 
-    Warnung: Führt bei großem N sofort zu Out-Of-Memory (OOM).
     """
     D, N = q.shape
     r0_2 = r0**2
     factor = c / r0_2
     
-    # (D, N, 1) - (D, 1, N) -> (D, N, N) -> OOM Gefahr!
+    # (D, N, 1) - (D, 1, N) -> (D, N, N) 
     # q[:, :, None] entspricht Shape (D, N, 1)
     # q[:, None, :] entspricht Shape (D, 1, N)
     # Resultat diff hat Shape (D, N, N)
@@ -112,8 +106,12 @@ def _kernel_simple(ptr_q, ptr_forces, N, sigma_sq, V0, BLOCK_SIZE: tl.constexpr)
     prefactor = V0 / sigma_sq; inv_width = -1.0 / (2.0 * sigma_sq)
     
     off_x = pid; off_y = N + pid; off_z = 2 * N + pid
-    q_i_x = tl.load(ptr_q + off_x); q_i_y = tl.load(ptr_q + off_y); q_i_z = tl.load(ptr_q + off_z)
-    acc_fx = 0.0; acc_fy = 0.0; acc_fz = 0.0
+    q_i_x = tl.load(ptr_q + off_x)
+    q_i_y = tl.load(ptr_q + off_y)
+    q_i_z = tl.load(ptr_q + off_z)
+    acc_fx = 0.0
+    acc_fy = 0.0
+    acc_fz = 0.0
     
     for j_start in range(0, N, BLOCK_SIZE):
         offs = tl.arange(0, BLOCK_SIZE); mask = (j_start + offs) < N
@@ -124,7 +122,9 @@ def _kernel_simple(ptr_q, ptr_forces, N, sigma_sq, V0, BLOCK_SIZE: tl.constexpr)
         dx = q_i_x - q_j_x; dy = q_i_y - q_j_y; dz = q_i_z - q_j_z
         r_sq = dx*dx + dy*dy + dz*dz
         mag = tl.where(mask, tl.exp(inv_width * r_sq) * prefactor, 0.0)
-        acc_fx += tl.sum(dx * mag); acc_fy += tl.sum(dy * mag); acc_fz += tl.sum(dz * mag)
+        acc_fx += tl.sum(dx * mag)
+        acc_fy += tl.sum(dy * mag)
+        acc_fz += tl.sum(dz * mag)
 
     tl.store(ptr_forces + off_x, acc_fx); tl.store(ptr_forces + off_y, acc_fy); tl.store(ptr_forces + off_z, acc_fz)
 
