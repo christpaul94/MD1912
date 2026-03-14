@@ -94,8 +94,8 @@ def initialize_one_temp_gaussian_state(
     # --- Wechselwirkungsparameter ---
     pair_params = {'r': 0.0, 'c': 0.0}
     if r0_phys is not None and C_phys is not None:
-        pair_params['r'] = float(r0_phys / L0)
-        pair_params['c'] = float(C_phys / E0)
+        pair_params['sigma'] = float(r0_phys / L0)
+        pair_params['V0'] = float(C_phys / E0)
 
     print("--- Initialisierung abgeschlossen ---\n")
     
