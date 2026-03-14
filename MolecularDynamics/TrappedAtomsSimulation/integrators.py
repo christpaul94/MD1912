@@ -11,7 +11,8 @@ import time
 
 def harmonic_fp(
     q: torch.Tensor,
-    omega_matrix: torch.Tensor
+    omega_matrix: torch.Tensor,
+    **kwargs  # <--- HIER: Schluckt alle unerwarteten Parameter
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     omega_squared = omega_matrix @ omega_matrix.T
     forces = - q @ omega_squared
