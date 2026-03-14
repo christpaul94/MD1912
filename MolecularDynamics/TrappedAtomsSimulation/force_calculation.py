@@ -236,3 +236,49 @@ def pair_triton_fp_v2(positions: torch.Tensor, r: float, c: float):
     total_sum = potential_sum_i.sum()
     total_potential = total_sum * 0.5
     return forces, total_potential
+
+
+import torch
+from pykeops.torch import LazyTensor
+
+def pair_force_keops_NxD(q: torch.Tensor, sigma: float, V0: float, chunk=None) -> torch.Tensor:
+    """
+    Berechnet die paarweisen Kräfte basierend auf einem Gauß-Potential.
+    Erwartet q im Format (N, D).
+    """
+    # Form: (N, 1, D) und (1, N, D)
+    x_i = LazyTensor(q[:, None, :])
+    x_j = LazyTensor(q[None, :, :])
+    
+    # Quadrierter Abstand
+    r_sq = (x_i - x_j).sqnorm2()
+    
+    # Kraftberechnung: -nabla V
+    pot_term = V0 * (-r_sq / (2 * sigma**2)).exp()
+    forces_NxD = (pot_term * (x_i - x_j) / sigma**2).sum(dim=1)
+    
+    return forces_NxD
+
+
+def pair_potential_keops_NxD(q: torch.Tensor, sigma: float, V0: float, chunk=None) -> torch.Tensor:
+    """
+    Berechnet die gesamte potentielle Energie des Systems.
+    Erwartet q im Format (N, D).
+    """
+    N = q.size(0)
+    
+    x_i = LazyTensor(q[:, None, :])
+    x_j = LazyTensor(q[None, :, :])
+    
+    r_sq = (x_i - x_j).sqnorm2()
+    
+    # Gauß-Potential Matrix
+    pot_matrix = V0 * (-r_sq / (2 * sigma**2)).exp()
+    
+    # Summiere erst über alle Nachbarn (dim=1), dann über alle Teilchen
+    total_pot_with_self = pot_matrix.sum(dim=1).sum()
+    
+    # Korrektur: Selbstwechselwirkung abziehen (N * V0) und Doppelzählung halbieren
+    total_pot = 0.5 * (total_pot_with_self - (N * V0))
+    
+    return total_pot
